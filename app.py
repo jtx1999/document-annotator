@@ -87,7 +87,8 @@ def main():
             label="下载标注后的文档",
             data=annotated_file,
             file_name="annotated_" + file_name,
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            on_click="ignore",
         )
 
 
