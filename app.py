@@ -93,6 +93,11 @@ def add_comments(doc: Document, answer_keys: AnswerKeys):
 
 
 def main():
+    st.set_page_config(
+        page_title="文档答案标注工具",
+        page_icon="📄",
+        layout="centered",
+    )
     st.title("文档答案标注工具")
     st.write("上传一个 .docx 文件以对其进行答案标注。")
 
