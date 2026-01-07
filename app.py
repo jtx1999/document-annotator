@@ -1,5 +1,9 @@
 import streamlit as st
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
 from typing import List, Dict, Tuple
 from google import genai
 from pydantic import BaseModel, Field
@@ -15,18 +19,45 @@ class AnswerKeys(BaseModel):
     answer_keys: List[AnswerKey] = Field(..., description="List of identified answer keys")
 
 
+def table_to_markdown(table: Table) -> str:
+    """Converts a docx Table object to a Markdown string."""
+    md_rows = []
+    for row in table.rows:
+        cells = [cell.text.replace('\n', ' ').strip() for cell in row.cells]
+        md_rows.append(f"| {' | '.join(cells)} |")
+    
+    # Create the header separator
+    if len(md_rows) > 0:
+        header_sep = f"| {' | '.join(['---'] * len(table.columns))} |"
+        md_rows.insert(1, header_sep)
+    
+    return "\n".join(md_rows)
+
+
 def get_document_content(file_path: str) -> Tuple[Document, List[Dict[str, str]]]:
     """
     Extracts text from a .docx file and returns a list of indexed paragraphs.
     """
     doc = Document(file_path)
     content = []
-    for i, para in enumerate(doc.paragraphs):
-        text = para.text.strip()
-        if text:  # Skip empty lines to save tokens
+
+    i = 0
+    for element in doc.element.body:
+        if isinstance(element, CT_P):
+            para = Paragraph(element, doc)
+            if para.text.strip():
+                content.append({
+                    "type": "paragraph",
+                    "content": para.text.strip(),
+                    "para_id": i,
+                })
+            i += 1
+        elif isinstance(element, CT_Tbl):
+            table = Table(element, doc)
+            table_md = table_to_markdown(table)
             content.append({
-                "para_id": i,
-                "text": text
+                "type": "table",
+                "content": table_md
             })
     return doc, content
 
@@ -37,6 +68,7 @@ Output a list of objects with 'para_id' and 'answer' fields. The `para_id` corre
 Some question may span multiple paragraphs, but the `para_id` for that answer should point to the beginning of the question.
 Some answers may correpond to multiple questions, especially for multiple choice questions. In such cases, list each question's `para_id` separately with the corresponding answer to that question.
 For questions that contain sub-questions, break down the answer for each sub-question and list the `para_id` of each sub-question.
+There might be multiple exams in the document. Identify the answer keys for all exams present.
 """
 
 
