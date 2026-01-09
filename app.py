@@ -8,6 +8,7 @@ from typing import List, Dict, Tuple
 from google import genai
 from pydantic import BaseModel, Field
 from io import BytesIO
+import re
 
 
 class AnswerKey(BaseModel):
@@ -37,6 +38,7 @@ def table_to_markdown(table: Table) -> str:
 def get_document_content(file_path: str) -> Tuple[Document, List[Dict[str, str]]]:
     """
     Extracts text from a .docx file and returns a list of indexed paragraphs.
+    Subscripts and superscripts are preserved using HTML notation.
     """
     doc = Document(file_path)
     content = []
@@ -45,10 +47,21 @@ def get_document_content(file_path: str) -> Tuple[Document, List[Dict[str, str]]
     for element in doc.element.body:
         if isinstance(element, CT_P):
             para = Paragraph(element, doc)
-            if para.text.strip():
+            # Extract text with formatting preserved
+            para_text = ""
+            for run in para.runs:
+                text = run.text
+                if run.font.superscript:
+                    text = f"<sup>{text}</sup>"
+                elif run.font.subscript:
+                    text = f"<sub>{text}</sub>"
+                para_text += text
+            
+            para_text = para_text.strip()
+            if para_text:
                 content.append({
                     "type": "paragraph",
-                    "content": para.text.strip(),
+                    "content": para_text,
                     "para_id": i,
                 })
             i += 1
@@ -69,6 +82,7 @@ Some question may span multiple paragraphs, but the `para_id` for that answer sh
 Some answers may correpond to multiple questions, especially for multiple choice questions. In such cases, list each question's `para_id` separately with the corresponding answer to that question.
 For questions that contain sub-questions, break down the answer for each sub-question and list the `para_id` of each sub-question.
 There might be multiple exams in the document. Identify the answer keys for all exams present.
+When needed, please keep the <sup></sup> and <sub></sub> tags to represent superscripts and subscripts.
 """
 
 
@@ -85,10 +99,32 @@ def identify_answer_keys(doc_content: List[Dict[str, str]]) -> AnswerKeys:
     return AnswerKeys.model_validate_json(response.text)
 
 
-def add_comments(doc: Document, answer_keys: AnswerKeys):
+def add_comments(doc: Document, answer_keys: AnswerKeys):    
     for answer_key in answer_keys.answer_keys:
         paragraph = doc.paragraphs[answer_key.para_id]
-        doc.add_comment(paragraph.runs, answer_key.answer, author="ChemistryAI")
+        comment = doc.add_comment(paragraph.runs, "", author="ChemistryAI")
+        comment_paragraph = comment.paragraphs[0]
+
+        # Parse the answer text and apply formatting
+        answer_text = answer_key.answer
+        
+        # Split text by formatting tags and add runs with appropriate formatting
+        parts = re.split(r'(<sup>.*?</sup>|<sub>.*?</sub>)', answer_text)
+        
+        for part in parts:
+            if part.startswith('<sup>') and part.endswith('</sup>'):
+                # Extract text from superscript tag
+                text = part[5:-6]
+                run = comment_paragraph.add_run(text)
+                run.font.superscript = True
+            elif part.startswith('<sub>') and part.endswith('</sub>'):
+                # Extract text from subscript tag
+                text = part[5:-6]
+                run = comment_paragraph.add_run(text)
+                run.font.subscript = True
+            elif part:
+                comment_paragraph.add_run(part)
+    
     return doc
 
 
